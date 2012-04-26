@@ -1,13 +1,13 @@
 from distutils.core import setup
 
 setup(
-    name='cmd2',
+    name='parsedcmd',
     version='0.1.0',
     author='Antony Lee',
     author_email='anntzer.lee@gmail.com',
-    py_modules=['cmd2'],
-    url='http://github.com/anntzer/cmd2',
+    py_modules=['parsedcmd'],
+    url='http://github.com/anntzer/parsedcmd',
     license='LICENSE.txt',
-    description='A better cmd.',
-    long_description=open('README.txt').read(),
+    description='A cmd with argument list parsing.',
+    long_description=open('README.md').read(),
 )

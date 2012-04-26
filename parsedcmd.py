@@ -1,4 +1,4 @@
-"""cmd2 - A better cmd.
+"""ParsedCmd - A Cmd with argument list parsing
 
 Interpreters constructed with this class obey the same conventions as those
 constructed with cmd.Cmd, except that `do_*' methods are passed parsed argument
@@ -9,7 +9,7 @@ The parsing is done in the following steps:
   - the input line is passed to the `split()' method (by default
     `shlex.split()'), and the result is bound to the argument list of the
     `do_*' method.
-  - initial options (`--opt val') are assigned to keyword-only arguments (which
+  - initial options (`-opt val') are assigned to keyword-only arguments (which
     can be simulated in Python 2 using the `@kw_only' decorator).
   - each value bound to an argument annotated with a callable, either through
     `@annotate([arg=callable]*)', or through Python 3's function annotation
@@ -20,14 +20,17 @@ The parsing is done in the following steps:
   - in theory, `**kwargs' are also parsed and cast but there is currently
     effectively no way to assign to them.
 
-Cmd2 interacts imperfectly with decorated functions.  Currently, it follows the
-`__wrapped__' attribute until finding a function that either doesn't have this
-attribute or is decorated with `@use_my_annotations', uses the signature and
-the annotations of this function to create the argument list, which is then
-passed to the wrapper function.
+ParsedCmd interacts imperfectly with decorated functions.  Currently, it
+follows the `__wrapped__` attribute until finding a function that either
+doesn't have this attribute or is decorated with `@use_my_annotations`, uses
+the signature and the annotations of this function to create the argument list,
+which is then passed to the wrapper function.  In particular, ParsedCmd
+provides a `wraps` function that works like the one provided in functools, but
+also sets the `__wrapped__` attribute (as in Python 3.3 or higher).
 """
 
 from __future__ import print_function
+from collections import namedtuple
 from cmd import Cmd
 import functools
 import inspect
@@ -36,40 +39,66 @@ import shlex
 import sys
 import textwrap
 
-__all__ = ["gets_raw", "use_my_annotations", "Cmd2"]
+__all__ = ["gets_raw", "use_my_annotations", "ParsedCmd", "boolean"]
 
 if sys.version_info.major >= 3:
-    getargspec = inspect.getfullargspec
+    __all__.append("basestring")
+
+    getfullargspec = inspect.getfullargspec
     getcallargs = inspect.getcallargs
-    
+
     def getannotations(func):
-        return getargspec(func).annotations
+        return getfullargspec(func).annotations
 
     def getkwonly(func):
-        kwonly = getargspec(func).kwonlydefaults
+        kwonly = getfullargspec(func).kwonlydefaults
         return kwonly.copy() if kwonly else {}
 
     basestring = str
-    
+
 else:
     if sys.version_info.major < 2 or sys.version_info.minor < 6:
         raise Exception("Cmd2 requires Python >= 2.6.")
     __all__.extend(["wraps", "annotate", "kw_only"])
-    
-    getargspec = inspect.getargspec
-    
+
+    def getannotations(func):
+        return getattr(func, "func_annotations", {})
+
+    def getkwonly(func):
+        return getattr(func, "kw_only", {}).copy()
+
+    def getfullargspec(func):
+        """Imitate Python 3's inspect.getfullargspec"""
+        args_, varargs, varkw, defaults_ = inspect.getargspec(func)
+        kwonlydefaults = getkwonly(func)
+        kwonlyargs = kwonlydefaults.keys()
+        # remove kw-only args *and* corresponding defaults
+        if kwonlyargs:
+            args = args_[:-len(kwonlyargs)]
+            defaults = []
+            for arg, default in zip(args_[-len(kwonlyargs):], defaults_):
+                if arg not in kwonlyargs:
+                    args.append(arg)
+                    defaults.append(default)
+        else: # avoiding args_[:-0]
+            args = args_
+            defaults = defaults_
+        annotations = getannotations(func)
+        FullArgSpec = namedtuple("FullArgSpec",
+            ("args", "varargs", "varkw", "defaults",
+             "kwonlyargs", "kwonlydefaults", "annotations"))
+        return FullArgSpec(args, varargs, varkw, defaults,
+                           kwonlyargs, kwonlydefaults, annotations)
+
     # modified from Python 3's inspect module to handle kwonly arguments.
     def getcallargs(func, *positional, **named):
         """Get the mapping of arguments to values.
 
-        A dict is returned, with keys the function argument names (including the
-        names of the * and ** arguments, if any), and values the respective bound
-        values from 'positional' and 'named'."""
-        args, varargs, varkw, defaults = getargspec(func)
-        kwonlydefaults = getkwonly(func)
-        kwonlyargs = kwonlydefaults.keys()
-        args = [arg for arg in args if arg not in kwonlyargs]
-        ann = getannotations(func)
+        A dict is returned, with keys the function argument names (including
+        the names of the * and ** arguments, if any), and values the respective
+        bound values from 'positional' and 'named'."""
+        spec = getfullargspec(func)
+        args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, ann = spec
         f_name = func.__name__
         arg2value = {}
 
@@ -132,20 +161,15 @@ else:
                 f_name, 'at least' if defaults else 'exactly', num_required,
                 'arguments' if num_required > 1 else 'argument', num_total))
         return arg2value
-    
-    def getannotations(func):
-        return getattr(func, "func_annotations", {})
-
-    def getkwonly(func):
-        return getattr(func, "kw_only", {}).copy()
 
     def annotate(**kwargs):
         """Decorator factory to simulate Python 3's annotation mechanism."""
         def decorator(func):
-            argspec = getargspec(func)
+            argspec = getfullargspec(func)
             for kw in kwargs:
                 if (kw not in argspec.args and
-                    kw not in [argspec.varargs, argspec.keywords, "return"]):
+                    kw not in argspec.kwonlyargs and
+                    kw not in [argspec.varargs, argspec.varkw, "return"]):
                     raise Exception(
                         "Invalid annotation ({0}={1}) for function {2}.".
                         format(kw, kwargs[kw], func.__name__))
@@ -157,7 +181,7 @@ else:
         """Decorator factory to simulate Python 3's kw-only arguments without
         actually enforcing it."""
         def decorator(func):
-            argspec = getargspec(func)
+            argspec = getfullargspec(func)
             kw_args = (argspec.args[-len(argspec.defaults):]
                        if argspec.defaults else [])
             for kw in args:
@@ -198,9 +222,9 @@ class ArgListError(Exception):
     """The argument list to the dispatched method could not be constructed."""
     pass
 
-class Cmd2(Cmd, object):
+class ParsedCmd(Cmd, object):
     """An subclass of cmd.Cmd that can parse arguments."""
-    
+
     def onecmd(self, line):
         # initial parsing
         cmd, arg, line = self.parseline(line)
@@ -218,19 +242,19 @@ class Cmd2(Cmd, object):
             return self.default(line)
         inner_func = func
         while (hasattr(inner_func, "__wrapped__") and
-               not getattr(inner_func, USE_MY_ANNOTATIONS, {})):
+               not getattr(inner_func, USE_MY_ANNOTATIONS, None)):
             inner_func = inner_func.__wrapped__
         try:
             args, kwargs = self.construct_arglist(arg, func, inner_func)
         except ArgListError as exc:
-            callback, = exc.args
-            return callback()
+            callback, args = exc.args
+            return callback(*args)
         return func(*args, **kwargs)
     onecmd.__doc__ = Cmd.onecmd.__doc__
 
     def split(self, line):
         """Split the argument list."""
-        return shlex.split(line)
+        return [arg.replace("\0", "") for arg in shlex.split(line)]
 
     def construct_arglist(self, arg, func, inner_func):
         """Construct *args and **kwargs to be passed to func from arg and
@@ -239,7 +263,7 @@ class Cmd2(Cmd, object):
         if getattr(inner_func, GETS_RAW, None):
             return [arg], {}
         args = self.split(arg)
-        argspec = getargspec(inner_func)
+        argspec = getfullargspec(inner_func)
         kw_args = (argspec.args[-len(argspec.defaults):]
                    if argspec.defaults else [])
         annotations = getannotations(inner_func)
@@ -250,7 +274,11 @@ class Cmd2(Cmd, object):
         while args and isinstance(args[0], basestring):
             kw = args[0].lstrip("-")
             if kw in kw_only:
-                kw_only[kw] = args[1]
+                try:
+                    kw_only[kw] = args[1]
+                except IndexError:
+                    exc_s = "Value not given for option."
+                    raise ArgListError(self.bind_error, (args, exc_s))
                 args = args[2:]
             else:
                 break
@@ -259,7 +287,8 @@ class Cmd2(Cmd, object):
         try:
             callargs = getcallargs(inner_func, *args, **kw_only)
         except TypeError as exc:
-            raise ArgListError(lambda: self.bind_error(args, exc))
+            exc_s = str(exc)
+            raise ArgListError(self.bind_error, (args, exc_s))
         for varname in callargs:
             cast = annotations.get(varname)
             if not callable(cast):
@@ -272,27 +301,30 @@ class Cmd2(Cmd, object):
                         bound_val[i] = cast(arg)
                     except Exception as exc:
                         exc_s = str(exc)
-                        raise ArgListError(
-                            lambda: self.cast_error(varname, arg, cast, exc_s))
+                        raise ArgListError(self.cast_error,
+                                           (varname, arg, cast, exc_s))
                 callargs[varname] = bound_val
-            elif varname == argspec[2]: # .varkw in Python 2, .keywords in Python 3
+            elif varname == argspec.varkw:
                 for key, val in bound_val.items():
                     try:
                         bound_val[key] = cast(val)
                     except Exception as exc:
                         exc_s = str(exc)
-                        raise ArgListError(
-                            lambda: self.cast_error(varname, arg, cast, exc_s))
+                        raise ArgListError(self.cast_error,
+                                           (varname, arg, cast, exc_s))
+            elif (bound_val ==
+                  getattr(argspec, "kwonlydefaults", {}).get(varname, object())):
+                continue # same as given default, Python 3
             elif (varname in kw_args and
                   bound_val == argspec.defaults[kw_args.index(varname)]):
-                continue
+                continue # same as given default, Python 2
             else:
                 try:
                     callargs[varname] = cast(bound_val)
                 except Exception as exc:
                     exc_s = str(exc)
-                    raise ArgListError(
-                        lambda: self.cast_error(varname, bound_val, cast, exc_s))
+                    raise ArgListError(self.cast_error,
+                                       (varname, bound_val, cast, exc_s))
         # reconstruct the argument list
         args = [callargs[varname] for varname in argspec.args]
         if argspec.varargs:
@@ -319,3 +351,7 @@ class Cmd2(Cmd, object):
 
     def do_help(self, cmd=None):
         return Cmd.do_help(self, cmd)
+
+def boolean(s):
+    """A generalized boolean caster."""
+    return s.lower() not in ["off", "false", "f", "0"]
