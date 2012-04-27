@@ -31,7 +31,7 @@ class UI(ParsedCmd):
         eval(line)
 
 class Tests:
-    def setUp(self):
+    def setup(self):
         self.out = StringIO()
         self.ui = UI(stdout=self.out)
 

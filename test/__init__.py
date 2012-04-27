@@ -1,3 +1,6 @@
-import sys
+import sys as _sys
 
-__all__ = ["test{}".format(sys.version_info.major)]
+if _sys.version_info[0] == 2:
+    from . import test_py2
+else:
+    from . import test_py3

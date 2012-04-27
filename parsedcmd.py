@@ -41,9 +41,7 @@ import textwrap
 
 __all__ = ["gets_raw", "use_my_annotations", "ParsedCmd", "boolean"]
 
-if sys.version_info.major >= 3:
-    __all__.append("basestring")
-
+if sys.version_info[0] >= 3:
     getfullargspec = inspect.getfullargspec
     getcallargs = inspect.getcallargs
 
@@ -57,7 +55,7 @@ if sys.version_info.major >= 3:
     basestring = str
 
 else:
-    if sys.version_info.major < 2 or sys.version_info.minor < 6:
+    if sys.version_info[0] < 2 or sys.version_info[1] < 6:
         raise Exception("Cmd2 requires Python >= 2.6.")
     __all__.extend(["wraps", "annotate", "kw_only"])
 
