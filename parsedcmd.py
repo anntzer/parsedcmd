@@ -73,10 +73,10 @@ else:
         kwonlydefaults = getkwonly(func)
         kwonlyargs = kwonlydefaults.keys()
         # remove kw-only args *and* corresponding defaults
-        if kwonlyargs:
+        if kwonlyargs: # (then _defaults is not empty)
             args = args_[:-len(kwonlyargs)]
             defaults = []
-            for arg, default in zip(args_[-len(kwonlyargs):], defaults_):
+            for arg, default in zip(args_[-len(defaults_):], defaults_):
                 if arg not in kwonlyargs:
                     args.append(arg)
                     defaults.append(default)
@@ -266,7 +266,6 @@ class ParsedCmd(Cmd, object):
         argspec = getfullargspec(inner_func)
         kw_args = (argspec.args[-len(argspec.defaults):]
                    if argspec.defaults else [])
-        annotations = getannotations(inner_func)
         kw_only = getkwonly(inner_func)
         # args = ["--kw", opt, "--kw", opt, ..., val, val...]
         # -> args = [val, val, ...]
@@ -290,7 +289,7 @@ class ParsedCmd(Cmd, object):
             exc_s = str(exc)
             raise ArgListError(self.bind_error, (args, exc_s))
         for varname in callargs:
-            cast = annotations.get(varname)
+            cast = argspec.annotations.get(varname)
             if not callable(cast):
                 continue
             bound_val = callargs[varname]
@@ -314,10 +313,10 @@ class ParsedCmd(Cmd, object):
                                            (varname, arg, cast, exc_s))
             elif (bound_val ==
                   getattr(argspec, "kwonlydefaults", {}).get(varname, object())):
-                continue # same as given default, Python 3
+                continue # same as given default, keyword-only
             elif (varname in kw_args and
                   bound_val == argspec.defaults[kw_args.index(varname)]):
-                continue # same as given default, Python 2
+                continue # same as given default, non-keyword-only
             else:
                 try:
                     callargs[varname] = cast(bound_val)
@@ -326,10 +325,14 @@ class ParsedCmd(Cmd, object):
                     raise ArgListError(self.cast_error,
                                        (varname, bound_val, cast, exc_s))
         # reconstruct the argument list
-        args = [callargs[varname] for varname in argspec.args]
+        args = [callargs[varname]
+                for varname in argspec.args if varname not in kw_args]
         if argspec.varargs:
             args.extend(callargs[argspec.varargs])
-        kwargs = callargs[argspec[2]] if argspec[2] else {}
+        kwargs = dict((varname, callargs[varname])
+                      for varname in kw_args + argspec.kwonlyargs)
+        if argspec.varkw:
+            kwargs.update(argspec.varkw)
         if inspect.ismethod(func):
             return args[1:], kwargs
         else:

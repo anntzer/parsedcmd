@@ -2,7 +2,7 @@ from distutils.core import setup
 
 setup(
     name='parsedcmd',
-    version='0.1.0',
+    version='0.1.1',
     author='Antony Lee',
     author_email='anntzer.lee@gmail.com',
     py_modules=['parsedcmd'],

@@ -15,36 +15,60 @@ ad-hoc ``kw_only`` decorator, in which case they will be assigned only if given
 as explicit arguments, i.e. ``method -option opt`` translates into
 ``do_method(option=opt)`` if ``option`` is keyword-only.
 
-Example
-=======
+Example (Python 2)
+==================
 
-    #!/usr/bin/env python2
     from parsedcmd import *
+
     class UI(ParsedCmd):
-    
-        # With Python 3, use do_print(line: str, *, repeat: int=1).
         # Non-annotated arguments default to str.
-        @annotate(line=str, repeat=int)
-        @kw_only("repeat")
-        def do_print(line, repeat=1)
-            """Print a given string; do it multiple times if -repeat N option
-            is given."""
-            for i in range(repeat):
-                print(line)
-    
         # boolean is a utility function, that casts every string to True,
         # except "f", "false", "off" and "0" (case-insensitive).
-        # *args can also be annotated.
-        @annotate(flag=boolean, nums=float)
-        def do_double(flag=True, *nums):
-            "Print twice the numbers given, except if -flag FALSE is given."
+        @annotate(flag=boolean, repeat=int)
+        @kw_only("flag", "repeat")
+        def do_print(self, line="abc", flag=True, repeat=1):
+            """Return a given string (defaults to "abc"); return multiple copies if
+            -repeat N option is given; return nothing if -flag is set to false."""
             if flag:
-                for num in nums:
-                    print(2 * num)
-    
+                for i in range(repeat):
+                    print(line, file=self.stdout)
+
+        # *args can also be annotated.
+        # Python 2's usual limitations about mixing keyword arguments and *args
+        # applies.
+        @annotate(nums=int)
+        def do_double(self, *nums):
+            "Print twice the numbers given."
+            for num in nums:
+                print(2 * num, file=self.stdout)
+
         # Do not parse the argument line for do_shell.
         @gets_raw
-        def do_shell(line)
+        def do_shell(self, line):
+            "Evaluates the given line."
+            eval(line)
+
+
+Example (Python 3)
+==================
+
+    from parsedcmd import *
+
+    class UI(ParsedCmd):
+        def do_print(self, line="abc", *, repeat: int=1):
+            """Return a given string (defaults to "abc"); return multiple copies if
+            -repeat N option is given."""
+            for i in range(repeat):
+                print(line, file=self.stdout)
+
+        def do_double(self, *nums: int, flag: boolean=True):
+            "Print twice the numbers given, except if -flag is set to false."
+            if flag:
+                for num in nums:
+                    print(2 * num, file=self.stdout)
+
+        @gets_raw
+        def do_shell(self, line):
             "Evaluates the given line."
             eval(line)
 
