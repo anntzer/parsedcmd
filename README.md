@@ -7,13 +7,16 @@ taking care in particular of the REPL loop and the interactive help.  However,
 no facility is given for parsing the argument line (`do_*` methods are passed
 the rest of the line as a single string argument).
 
-With ParsedCmd, ``do_*`` methods are type-annotated, either using Python 3's
+With ParsedCmd, ``do_*`` methods can be type-annotated, either using Python 3's
 function annotation syntax, or with the ad-hoc ``annotate`` decorator, allowing
 the dispatcher to parse the argument list for them.  Arguments can also be
 marked as keyword-only, either using Python 3's dedicated syntax, or with the
 ad-hoc ``kw_only`` decorator, in which case they will be assigned only if given
 as explicit arguments, i.e. ``method -option opt`` translates into
 ``do_method(option=opt)`` if ``option`` is keyword-only.
+
+These annotations can also used to enhance the output of the default `do_help`
+method, by setting the `show_usage` attribute of the ParsedCmd object to True.
 
 Example (Python 2)
 ==================
@@ -27,8 +30,10 @@ Example (Python 2)
         @annotate(flag=boolean, repeat=int)
         @kw_only("flag", "repeat")
         def do_print(self, line="abc", flag=True, repeat=1):
-            """Return a given string (defaults to "abc"); return multiple copies if
-            -repeat N option is given; return nothing if -flag is set to false."""
+            """Print a given string (defaults to "abc").
+            Print nothing if -flag is set to false.
+            Print multiple copies if -repeat N option is given.
+            """
             if flag:
                 for i in range(repeat):
                     print(line, file=self.stdout)
@@ -36,18 +41,19 @@ Example (Python 2)
         # *args can also be annotated.
         # Python 2's usual limitations about mixing keyword arguments and *args
         # applies.
-        @annotate(nums=int)
-        def do_double(self, *nums):
-            "Print twice the numbers given."
+        @annotate(mul=int, nums=int)
+        def do_multiply(self, mul, *nums):
+            """Print `mul` times the numbers given.
+            """
             for num in nums:
-                print(2 * num, file=self.stdout)
+                print(mul * num, file=self.stdout)
 
         # Do not parse the argument line for do_shell.
         @gets_raw
         def do_shell(self, line):
-            "Evaluates the given line."
+            """Evaluates the given line.
+            """
             eval(line)
-
 
 Example (Python 3)
 ==================
@@ -55,21 +61,25 @@ Example (Python 3)
     from parsedcmd import *
 
     class UI(ParsedCmd):
-        def do_print(self, line="abc", *, repeat: int=1):
-            """Return a given string (defaults to "abc"); return multiple copies if
-            -repeat N option is given."""
-            for i in range(repeat):
-                print(line, file=self.stdout)
-
-        def do_double(self, *nums: int, flag: boolean=True):
-            "Print twice the numbers given, except if -flag is set to false."
+        def do_print(self, line="abc", *, flag: boolean=True, repeat: int=1):
+            """Print a given string (defaults to "abc").
+            Print nothing if -flag is set to false.
+            Print multiple copies if -repeat N option is given.
+            """
             if flag:
-                for num in nums:
-                    print(2 * num, file=self.stdout)
+                for i in range(repeat):
+                    print(line, file=self.stdout)
+
+        def do_multiply(self, mul: int, *nums: int):
+            """Print `mul` times the numbers given.
+            """
+            for num in nums:
+                print(mul * num, file=self.stdout)
 
         @gets_raw
         def do_shell(self, line):
-            "Evaluates the given line."
+            """Evaluates the given line.
+            """
             eval(line)
 
 Remarks

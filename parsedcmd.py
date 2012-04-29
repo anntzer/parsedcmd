@@ -3,7 +3,7 @@
 Interpreters constructed with this class obey the same conventions as those
 constructed with cmd.Cmd, except that `do_*' methods are passed parsed argument
 lists, instead of the raw input, as long as the method has not been decorated
-with @gets_raw.
+with `@gets_raw`.
 
 The parsing is done in the following steps:
   - the input line is passed to the `split()' method (by default
@@ -27,6 +27,12 @@ the signature and the annotations of this function to create the argument list,
 which is then passed to the wrapper function.  In particular, ParsedCmd
 provides a `wraps` function that works like the one provided in functools, but
 also sets the `__wrapped__` attribute (as in Python 3.3 or higher).
+
+If the `show_usage` attribute of a ParsedCmd is set to true (which can be done
+by passing it as a keyword argument to the constructor), then help messages
+that are derived from docstrings (not those that are derived from a `help_*`
+method) are appended with a pretty-printed version of the method's signature,
+if the methods is not `@gets_raw`ed.
 """
 
 from __future__ import print_function
@@ -45,13 +51,6 @@ if sys.version_info[0] >= 3:
     getfullargspec = inspect.getfullargspec
     getcallargs = inspect.getcallargs
 
-    def getannotations(func):
-        return getfullargspec(func).annotations
-
-    def getkwonly(func):
-        kwonly = getfullargspec(func).kwonlydefaults
-        return kwonly.copy() if kwonly else {}
-
     basestring = str
 
 else:
@@ -59,20 +58,14 @@ else:
         raise Exception("Cmd2 requires Python >= 2.6.")
     __all__.extend(["wraps", "annotate", "kw_only"])
 
-    def getannotations(func):
-        return getattr(func, "func_annotations", {})
-
-    def getkwonly(func):
-        return getattr(func, "kw_only", {}).copy()
-
     def getfullargspec(func):
         """Imitate Python 3's inspect.getfullargspec"""
         args_, varargs, varkw, defaults_ = inspect.getargspec(func)
-        kwonlydefaults = getkwonly(func)
-        kwonlyargs = kwonlydefaults.keys()
+        kwonlydefaults = getattr(func, "kw_only", None)
+        kwonlyargs = kwonlydefaults.keys() if kwonlydefaults else []
         # remove kw-only args *and* corresponding defaults
-        if kwonlyargs: # (then _defaults is not empty)
-            args = args_[:-len(kwonlyargs)]
+        if defaults_:
+            args = args_[:-len(defaults_)]
             defaults = []
             for arg, default in zip(args_[-len(defaults_):], defaults_):
                 if arg not in kwonlyargs:
@@ -81,7 +74,7 @@ else:
         else: # avoiding args_[:-0]
             args = args_
             defaults = defaults_
-        annotations = getannotations(func)
+        annotations = getattr(func, "func_annotations", {})
         FullArgSpec = namedtuple("FullArgSpec",
             ("args", "varargs", "varkw", "defaults",
              "kwonlyargs", "kwonlydefaults", "annotations"))
@@ -223,6 +216,11 @@ class ArgListError(Exception):
 class ParsedCmd(Cmd, object):
     """An subclass of cmd.Cmd that can parse arguments."""
 
+    def __init__(self, **kwargs):
+        show_usage = kwargs.pop("show_usage", False)
+        Cmd.__init__(self, **kwargs)
+        self.show_usage = show_usage
+
     def onecmd(self, line):
         # initial parsing
         cmd, arg, line = self.parseline(line)
@@ -264,7 +262,8 @@ class ParsedCmd(Cmd, object):
         argspec = getfullargspec(inner_func)
         kw_args = (argspec.args[-len(argspec.defaults):]
                    if argspec.defaults else [])
-        kw_only = getkwonly(inner_func)
+        kw_only = (argspec.kwonlydefaults.copy()
+                   if argspec.kwonlydefaults else {})
         # args = ["--kw", opt, "--kw", opt, ..., val, val...]
         # -> args = [val, val, ...]
         # -> opts = {"kw": opt, "kw": opt, ...}
@@ -310,7 +309,7 @@ class ParsedCmd(Cmd, object):
                         raise ArgListError(self.cast_error,
                                            (varname, arg, cast, exc_s))
             elif (bound_val ==
-                  getattr(argspec, "kwonlydefaults", {}).get(varname, object())):
+                  (argspec.kwonlydefaults or {}).get(varname, object())):
                 continue # same as given default, keyword-only
             elif (varname in kw_args and
                   bound_val == argspec.defaults[kw_args.index(varname)]):
@@ -339,19 +338,49 @@ class ParsedCmd(Cmd, object):
     def bind_error(self, args, exc):
         """Called when the argument list does not match the method's
         signature."""
-        print("*** This argument list could not be bound:", args)
-        print("***", exc)
+        self.stdout.write(
+            "*** This argument list could not be bound: {}\n*** {}\n".
+            format(args, exc))
 
     def cast_error(self, varname, value, cast, exc):
         """Called when an argument cannot be cast by the given caster."""
-        print(textwrap.fill('*** While trying to cast "{0}" with "{1}" for '
-                            'argument "{2}", the following exception was '
-                            'thrown:'.format(value, cast, varname),
-                            72, subsequent_indent="*** "))
-        print("***", exc)
+        self.stdout.write(
+            textwrap.fill('*** While trying to cast "{0}" with "{1}" for '
+                          'argument "{2}", the following exception was '
+                          'thrown:\n'.format(value, cast, varname),
+                          72, subsequent_indent="*** "))
+        self.stdout.write("*** {}".format(exc))
 
     def do_help(self, cmd=None):
-        return Cmd.do_help(self, cmd)
+        Cmd.do_help(self, cmd)
+        if not cmd or not self.show_usage:
+            return
+        do_ = getattr(self, "do_" + cmd, None)
+        if not do_ or hasattr(self, "help_ " + cmd):
+            return
+        while (hasattr(do_, "__wrapped__") and
+               not getattr(do_, USE_MY_ANNOTATIONS, None)):
+            do_ = do_.__wrapped__
+        if getattr(do_, GETS_RAW, None):
+            return
+        spec = getfullargspec(do_)
+        args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, ann = spec
+        non_kw_args = args[:-len(defaults)] if defaults else args
+        kw_args = args[-len(defaults):] if defaults else []
+        if not defaults:
+            defaults = []
+        if not kwonlydefaults:
+            kwonlydefaults = {}
+        helpstr = "\t" + cmd
+        for arg, default in kwonlydefaults.items():
+            helpstr += " [-{} {}(={})]".format(arg, arg[0].upper(), default)
+        for arg, default in zip(kw_args, defaults):
+            helpstr += " [{}(={})]".format(arg.upper(), default)
+        for arg in non_kw_args[1:]:
+            helpstr += " {}".format(arg.upper())
+        if varargs:
+            helpstr += " [{}]".format(varargs.upper())
+        self.stdout.write(helpstr + "\n")
 
 def boolean(s):
     """A generalized boolean caster."""
