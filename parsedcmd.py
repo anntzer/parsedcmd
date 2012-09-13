@@ -373,13 +373,13 @@ class ParsedCmd(Cmd, object):
             kwonlydefaults = {}
         helpstr = "\t" + cmd
         for arg, default in kwonlydefaults.items():
-            helpstr += " [-{} {}(={})]".format(arg, arg[0].upper(), default)
+            helpstr += " [-{0} {1}(={2})]".format(arg, arg[0].upper(), default)
         for arg, default in zip(kw_args, defaults):
-            helpstr += " [{}(={})]".format(arg.upper(), default)
+            helpstr += " [{0}(={1})]".format(arg.upper(), default)
         for arg in non_kw_args[1:]:
-            helpstr += " {}".format(arg.upper())
+            helpstr += " {0}".format(arg.upper())
         if varargs:
-            helpstr += " [{}]".format(varargs.upper())
+            helpstr += " [{0}]".format(varargs.upper())
         self.stdout.write(helpstr + "\n")
 
 def boolean(s):

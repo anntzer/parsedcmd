@@ -2,24 +2,24 @@ ParsedCmd - A Cmd with argument list parsing
 ============================================
 
 ParsedCmd is an extension built around the excellent cmd module of the standard
-library.  Cmd allows one to build simple custom shells using ``do_*`` methods,
+library.  Cmd allows one to build simple custom shells using `do_*` methods,
 taking care in particular of the REPL loop and the interactive help.  However,
 no facility is given for parsing the argument line (`do_*` methods are passed
 the rest of the line as a single string argument).
 
-With ParsedCmd, ``do_*`` methods can be type-annotated, either using Python 3's
-function annotation syntax, or with the ad-hoc ``annotate`` decorator, allowing
-the dispatcher to parse the argument list for them.  Arguments can also be
-marked as keyword-only, either using Python 3's dedicated syntax, or with the
-ad-hoc ``kw_only`` decorator, in which case they will be assigned only if given
-as explicit arguments, i.e. ``method -option opt`` translates into
-``do_method(option=opt)`` if ``option`` is keyword-only.
+With ParsedCmd, `do_*` methods can be type-annotated, either using Python
+3's function annotation syntax, or with the ad-hoc `annotate` decorator,
+allowing the dispatcher to parse the argument list for them.  Arguments can
+also be marked as keyword-only, either using Python 3's dedicated syntax, or
+with the ad-hoc `kw_only` decorator, in which case they will be assigned only
+if given as explicit arguments, i.e. `method -option opt` translates into
+`do_method(option=opt)` if `option` is keyword-only.
 
 These annotations can also used to enhance the output of the default `do_help`
 method, by setting the `show_usage` attribute of the ParsedCmd object to True.
 
-Example (Python 2)
-==================
+Example (Python 2.6-2.7)
+========================
 
     from parsedcmd import *
 
@@ -103,7 +103,12 @@ The parsing is done in the following steps:
 ParsedCmd interacts imperfectly with decorated functions.  Currently, it
 follows the `__wrapped__` attribute until finding a function that either
 doesn't have this attribute or is decorated with `@use_my_annotations`, uses
-the signature and the annotations of this function to create the argument list,
-which is then passed to the wrapper function.  In particular, ParsedCmd
+the signature and the annotations of this function to create the argument
+list, which is then passed to the wrapper function.  In particular, ParsedCmd
 provides a `wraps` function that works like the one provided in functools, but
 also sets the `__wrapped__` attribute (as in Python 3.3 or higher).
+
+Testing
+=======
+
+Just run `py.test` in the source folder.
